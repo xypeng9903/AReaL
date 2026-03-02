@@ -582,7 +582,7 @@ ALLOCATION_GRAMMAR = """
     INF_DIM_TYPE: "d" | "t" | "p"
 
     INFER_BACKEND: "sglang" | "vllm"
-    TRAIN_BACKEND: "fsdp" | "megatron" | "archon"
+    TRAIN_BACKEND: "fsdp" | "megatron" | "archon" | "veomini"
 
     NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
     NUMBER: /[1-9][0-9]*/

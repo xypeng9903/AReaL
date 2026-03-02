@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from areal.experimental.engine.archon_engine import ArchonPPOActor, ArchonPPOCritic
     from areal.trainer.ppo.actor import PPOActorController
     from areal.trainer.ppo.critic import PPOCriticController
+    from veomni.veomini_engine import VeOMiniPPOActor, VeOMiniPPOCritic
 
 logger = logging.getLogger("RLTrainer")
 
@@ -576,7 +577,7 @@ class PPOTrainer:
 
     def _create_actor(
         self, actor_config: PPOActorConfig
-    ) -> FSDPPPOActor | MegatronPPOActor | ArchonPPOActor | PPOActorController:
+    ) -> FSDPPPOActor | MegatronPPOActor | ArchonPPOActor | VeOMiniPPOActor | PPOActorController:
         if self.allocation_mode.train_backend == "fsdp":
             from areal.engine.fsdp_engine import FSDPPPOActor
 
@@ -589,9 +590,13 @@ class PPOTrainer:
             from areal.experimental.engine.archon_engine import ArchonPPOActor
 
             actor_cls = ArchonPPOActor
+        elif self.allocation_mode.train_backend == "veomini":
+            from veomni.veomini_engine import VeOMiniPPOActor
+
+            actor_cls = VeOMiniPPOActor
         else:
             raise ValueError(
-                f"Invalid backend: {self.allocation_mode.train_backend}, expected fsdp, megatron or archon"
+                f"Invalid backend: {self.allocation_mode.train_backend}, expected fsdp, megatron, archon or veomini"
             )
         if is_single_controller():
             actor = actor_cls.as_controller(actor_config, self.scheduler)
@@ -602,7 +607,7 @@ class PPOTrainer:
 
     def _create_critic(
         self, critic_config: PPOCriticConfig
-    ) -> FSDPPPOCritic | MegatronPPOCritic | ArchonPPOCritic | PPOCriticController:
+    ) -> FSDPPPOCritic | MegatronPPOCritic | ArchonPPOCritic | VeOMiniPPOCritic | PPOCriticController:
         if self.allocation_mode.train_backend == "fsdp":
             from areal.engine.fsdp_engine import FSDPPPOCritic
 
@@ -615,9 +620,13 @@ class PPOTrainer:
             from areal.experimental.engine.archon_engine import ArchonPPOCritic
 
             critic_cls = ArchonPPOCritic
+        elif self.allocation_mode.train_backend == "veomini":
+            from veomni.veomini_engine import VeOMiniPPOCritic
+
+            critic_cls = VeOMiniPPOCritic
         else:
             raise ValueError(
-                f"Invalid backend: {self.allocation_mode.train_backend}, expected fsdp, megatron or archon"
+                f"Invalid backend: {self.allocation_mode.train_backend}, expected fsdp, megatron, archon or veomini"
             )
         if is_single_controller():
             critic = critic_cls.as_controller(critic_config, self.scheduler)
