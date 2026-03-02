@@ -141,6 +141,71 @@ def _compute_sequence_level_ratio_and_advantages(
     return ratio, advantages
 
 
+def _compute_token_mask_for_policy_loss(
+    rollout_log_prob: torch.Tensor,
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    cliprange_low: float,
+    cliprange_high: float,
+    loss_mode: str,
+    topk_kl: torch.Tensor | None = None,
+    topk_tv: torch.Tensor | None = None,
+) -> torch.Tensor:
+    prob = torch.exp(log_prob)
+    old_prob = torch.exp(old_log_prob)
+    rollout_prob = torch.exp(rollout_log_prob)
+    old_ratio = torch.exp(log_prob - old_log_prob)
+    rollout_ratio = torch.exp(log_prob - rollout_log_prob)
+
+    if loss_mode == "dppo_binary_kl":
+        kl = rollout_prob * (rollout_log_prob - log_prob) + (1 - rollout_prob) * torch.log((1.0 - rollout_prob + 1e-8) / (1.0 - prob + 1e-8))
+        invalid_positive_mask = (kl > cliprange_high) & (prob > rollout_prob)
+        invalid_negative_mask = (kl > cliprange_low) & (prob < rollout_prob)
+    elif loss_mode == "dppo_binary_kl_recompute":
+        kl = old_prob * (old_log_prob - log_prob) + (1 - old_prob) * torch.log((1.0 - old_prob + 1e-8) / (1.0 - prob + 1e-8))
+        invalid_positive_mask = (kl > cliprange_high) & (prob > old_prob)
+        invalid_negative_mask = (kl > cliprange_low) & (prob < old_prob)
+    elif loss_mode == "dppo_topk_kl":
+        invalid_positive_mask = (topk_kl > cliprange_high) & (prob > rollout_prob)
+        invalid_negative_mask = (topk_kl > cliprange_low) & (prob < rollout_prob)
+    elif loss_mode == "dppo_binary_tv":
+        invalid_positive_mask = (prob - rollout_prob) > cliprange_high
+        invalid_negative_mask = (prob - rollout_prob) < -cliprange_low
+    elif loss_mode == "dppo_binary_tv_recompute":
+        invalid_positive_mask = (prob - old_prob) > cliprange_high
+        invalid_negative_mask = (prob - old_prob) < -cliprange_low
+    elif loss_mode == "dppo_topk_tv":
+        invalid_positive_mask = (topk_tv > cliprange_high) & (prob > rollout_prob)
+        invalid_negative_mask = (topk_tv > cliprange_low) & (prob < rollout_prob)
+    elif loss_mode == "ppo":
+        invalid_positive_mask = rollout_ratio > 1 + cliprange_high
+        invalid_negative_mask = rollout_ratio < 1 - cliprange_low
+    elif loss_mode == "ppo_recompute":
+        invalid_positive_mask = old_ratio > 1 + cliprange_high
+        invalid_negative_mask = old_ratio < 1 - cliprange_low
+    elif loss_mode == "ppo_ablation_positive":
+        invalid_positive_mask = (rollout_ratio > 1 + 0.28) & (rollout_prob >= cliprange_high)
+        invalid_negative_mask = rollout_ratio < 1 - cliprange_low
+    elif loss_mode == "ppo_ablation_negative":
+        invalid_positive_mask = rollout_ratio > 1 + cliprange_high
+        invalid_negative_mask = (rollout_ratio < 1 - 0.2) & (rollout_prob >= cliprange_low)
+    elif loss_mode == "ppo_ablation_both":
+        invalid_positive_mask = (rollout_ratio > 1 + 0.28) & (rollout_prob >= cliprange_high)
+        invalid_negative_mask = (rollout_ratio < 1 - 0.2) & (rollout_prob >= cliprange_low)
+    elif loss_mode == "pg_no_mask":
+        invalid_positive_mask = torch.zeros_like(prob)
+        invalid_negative_mask = torch.zeros_like(prob)
+    else:
+        raise ValueError(f"Invalid loss_mode: {loss_mode}")
+
+    invalid_mask = torch.where(advantages > 0, invalid_positive_mask, invalid_negative_mask)
+    valid_mask = 1.0 - invalid_mask.detach().float()
+    valid_mask = valid_mask * response_mask.float()
+    return valid_mask
+
+
 def ppo_actor_loss_fn(
     logprobs: torch.Tensor,
     proximal_logprobs: torch.Tensor,
@@ -153,6 +218,7 @@ def ppo_actor_loss_fn(
     behav_imp_weight_cap: float | None = None,
     importance_sampling_level: str = "token",
     cu_seqlens: torch.Tensor | None = None,
+    token_mask_mode: str | None = None,
 ) -> tuple[torch.Tensor, dict]:
     """
     When decoupled loss is disabled:
@@ -195,9 +261,25 @@ def ppo_actor_loss_fn(
     )
 
     pg_loss1 = -advantages * ratio
-    pg_loss2 = -advantages * clipped_ratio
-    clip_mask = pg_loss1.detach() < pg_loss2.detach()
-    pg_loss = torch.max(pg_loss1, pg_loss2)
+    original_loss_mask = loss_mask
+    if token_mask_mode is not None and token_mask_mode != "ppo":
+        valid_mask = _compute_token_mask_for_policy_loss(
+            rollout_log_prob=old_logprobs,
+            old_log_prob=proximal_logprobs,
+            log_prob=logprobs,
+            advantages=advantages,
+            response_mask=loss_mask,
+            cliprange_low=eps_clip,
+            cliprange_high=eps_clip if eps_clip_higher is None else eps_clip_higher,
+            loss_mode=token_mask_mode,
+        )
+        pg_loss = pg_loss1
+        clip_mask = ~valid_mask.bool()
+        loss_mask = loss_mask * valid_mask.bool()
+    else:
+        pg_loss2 = -advantages * clipped_ratio
+        clip_mask = pg_loss1.detach() < pg_loss2.detach()
+        pg_loss = torch.max(pg_loss1, pg_loss2)
     if c_clip is not None:
         assert c_clip > 1.0, c_clip
         pg_loss3 = torch.sign(advantages) * c_clip * advantages
@@ -217,8 +299,10 @@ def ppo_actor_loss_fn(
     pg_loss = pg_loss * behav_imp_weight
     logging_loss = pg_loss.detach()
     pg_loss = torch.where(loss_mask, pg_loss, 0).sum() / loss_mask_count
-    clip_mask.logical_and_(loss_mask)
-    dual_clip_mask.logical_and_(loss_mask)
+    clip_mask.logical_and_(original_loss_mask)
+    if not isinstance(dual_clip_mask, torch.Tensor) or dual_clip_mask.dtype != torch.bool:
+        dual_clip_mask = torch.zeros_like(clip_mask)
+    dual_clip_mask.logical_and_(original_loss_mask)
     stat = dict(
         loss=logging_loss,
         importance_weight=ratio.detach(),

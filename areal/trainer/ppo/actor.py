@@ -336,6 +336,7 @@ class PPOActor:
                         sapo_tau_pos=self.config.sapo_tau_pos,
                         sapo_tau_neg=self.config.sapo_tau_neg,
                         use_decoupled_loss=self.config.use_decoupled_loss,
+                        token_mask_mode=self.config.token_mask_mode,
                     ),
                     loss_weight_fn=lambda x: x["loss_mask"].count_nonzero(),
                 )
@@ -369,6 +370,7 @@ def grpo_loss_fn(
     sapo_tau_pos: float = 1.0,
     sapo_tau_neg: float = 1.05,
     use_decoupled_loss: bool = False,
+    token_mask_mode: str | None = None,
     vocab_min_logits: torch.Tensor | None = None,
     vocab_max_logits: torch.Tensor | None = None,
 ):
@@ -425,6 +427,7 @@ def grpo_loss_fn(
             behav_imp_weight_cap=behav_imp_weight_cap,
             importance_sampling_level=importance_sampling_level,
             cu_seqlens=input_data.get("cu_seqlens"),
+            token_mask_mode=token_mask_mode,
         )
 
     # Log training statistics

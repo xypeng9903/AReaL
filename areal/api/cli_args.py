@@ -947,6 +947,15 @@ class PPOActorConfig(TrainEngineConfig):
             "help": "Clipping factor (higher value) for policy ratio. Default is None. When eps_clip_higher is set (decoupled), eps_clip will be used as the lower value."
         },
     )
+    token_mask_mode: str | None = field(
+        default=None,
+        metadata={
+            "help": "Token mask mode, replacing standard PPO clipping with divergence-based "
+            "token masking. Supported modes: dppo_binary_kl, dppo_binary_kl_recompute, "
+            "dppo_topk_kl, dppo_binary_tv, dppo_binary_tv_recompute, dppo_topk_tv, "
+            "ppo, ppo_recompute, pg_no_mask. Default is None (standard PPO clipping)."
+        },
+    )
     c_clip: float | None = field(
         default=None,
         metadata={
