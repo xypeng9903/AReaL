@@ -197,6 +197,10 @@ api_key.json
 *.jpg
 *.pdf
 *.swp
+/*.sh
+/*.yaml
+/*.hope
+/*.whl
 
 .vscode/
 wandb/

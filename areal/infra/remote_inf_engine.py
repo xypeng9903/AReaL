@@ -368,11 +368,10 @@ class RemoteInfEngine(InferenceEngine):
         try:
             health_req = self.backend.get_health_check_request()
             url = f"{base_url}{health_req.endpoint}"
-            response = requests.request(
-                health_req.method, url, json=health_req.payload, timeout=30
-            )
+            response = requests.request(health_req.method, url, timeout=5)
             return response.status_code == 200
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            self.logger.info(e)
             return False
 
     def initialize(

@@ -8,14 +8,7 @@ if TYPE_CHECKING:
     from transformers.processing_utils import ProcessorMixin
     from transformers.tokenization_utils_fast import PreTrainedTokenizerFast
 
-VALID_DATASETS = [
-    "gsm8k",
-    "clevr_count_70k",
-    "geometry3k",
-    "virl39k",
-    "hh-rlhf",
-    "torl_data",
-]
+VALID_DATASETS = ["gsm8k", "clevr_count_70k", "geometry3k", "hh-rlhf", "torl_data"]
 
 logger = logging.getLogger("Dataset")
 
@@ -89,16 +82,6 @@ def _get_custom_dataset(
             max_length=max_length,
             **kwargs,
         )
-    elif "virl39k" in path.lower() and type == "rl":
-        from .virl39k import get_virl39k_rl_dataset
-
-        return get_virl39k_rl_dataset(
-            path=path,
-            split=split,
-            processor=processor,
-            max_length=max_length,
-            **kwargs,
-        )
     elif "hh-rlhf" in path and type == "rw":
         from .hhrlhf import get_hhrlhf_rw_dataset
 
@@ -119,6 +102,14 @@ def _get_custom_dataset(
             max_length=max_length,
             **kwargs,
         )
+    elif "open-r1/DAPO-Math-17k-Processed" in path and type == "rl":
+        from .dapo17k_openr1 import get_dapo17k_rl_dataset
+
+        return get_dapo17k_rl_dataset(path, tokenizer, max_length)
+    elif "jsonl" in path and type == "rl":
+        from .jsonl import get_jsonl_rl_dataset
+
+        return get_jsonl_rl_dataset(path, tokenizer, max_length)
     else:
         raise ValueError(
             f"Dataset {path} with split {split} and training type {type} is not supported. "
