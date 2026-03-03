@@ -442,9 +442,9 @@ class AllocationMode:
         return [a for a in self.allocations if a.backend in ("sglang", "vllm")]
 
     def _get_training_allocations(self) -> list[ModelAllocation]:
-        """Get all training allocations (fsdp, megatron, archon backends)."""
+        """Get all training allocations (fsdp, megatron, archon, veomini backends)."""
         return [
-            a for a in self.allocations if a.backend in ("fsdp", "megatron", "archon")
+            a for a in self.allocations if a.backend in ("fsdp", "megatron", "archon", "veomini")
         ]
 
     ########### Legacy Attributes for Backward Compatiblity ###########

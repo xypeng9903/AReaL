@@ -15,7 +15,6 @@ import re
 import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future
-from contextlib import nullcontext
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -23,11 +22,6 @@ import torch
 import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 from torch import nn
-from torch.distributed.checkpoint.state_dict import (
-    StateDictOptions,
-    get_model_state_dict,
-)
-from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import DTensor
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import (
@@ -235,9 +229,9 @@ class VeOMiniEngine(TrainEngine):
 
         # Map VeOmni groups to AReaL interface
         self._dp_group = self._parallel_state.dp_group
-        self._sp_group = self._parallel_state.sp_group
+        self._sp_group = self._parallel_state.sp_group if self._parallel_state.sp_enabled else None
         # Context + model parallel group = sp (ulysses in veomni terms)
-        self._mp_group = self._parallel_state.sp_group if sp_size > 1 else self._dp_group
+        self._mp_group = self._sp_group if sp_size > 1 else self._dp_group
 
         self.dp_head = 0  # rank 0 is always dp head in single-dim DP
         if self._dp_group is not None:
@@ -697,9 +691,10 @@ class VeOMiniEngine(TrainEngine):
                 "for an example)."
             )
 
+        init_device = "meta" if self._parallel_state.fsdp_enabled else "cuda"
         self.model = build_parallelize_model(
             self.model,
-            init_device="meta",
+            init_device=init_device,
             weights_path=None if self.config.init_from_scratch else self.config.path,
             enable_full_shard=True,
             enable_reshard_after_forward=True,
