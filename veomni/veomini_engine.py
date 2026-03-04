@@ -703,7 +703,7 @@ class VeOMiniEngine(TrainEngine):
             basic_modules=basic_modules,
             enable_reentrant=False,
             enable_forward_prefetch=True,
-            broadcast_model_weights_from_rank0=True,
+            broadcast_model_weights_from_rank0=False,
         )
         self.model.train()
 

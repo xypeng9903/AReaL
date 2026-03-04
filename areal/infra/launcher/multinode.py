@@ -179,8 +179,8 @@ def multinode_main(config, run_id: int = 0):
     elif allocation_mode.gen_backend == "vllm":
         n_gen_nodes = max(1, allocation_mode.gen.world_size // n_gpus_per_node)
         
-    if allocation_mode.type_ == AllocationType.DECOUPLED_EVAL:
-        n_train_nodes = 1
+    if allocation_mode.type_ == AllocationType.DECOUPLED_TRAIN:
+        n_train_nodes = full_world_size - n_gen_nodes
     elif allocation_mode.type_ == AllocationType.LLM_SERVER_ONLY:
         n_train_nodes = 0
         n_gen_nodes = full_world_size
@@ -241,7 +241,8 @@ def multinode_main(config, run_id: int = 0):
             server_addrs = wait_llm_server_addrs(
                  config.experiment_name,
                  config.trial_name,
-                 n_rollout_servers=n_servers_to_wait
+                 n_rollout_servers=n_servers_to_wait,
+                 timeout=3600
             )
             logger.info(f"All LLM Servers Ready: {len(server_addrs)}")
         except (TimeoutError, KeyboardInterrupt) as e:
