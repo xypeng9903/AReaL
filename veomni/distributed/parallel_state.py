@@ -270,7 +270,7 @@ class ParallelState:
 
     @property
     def fsdp_enabled(self) -> bool:
-        return self.fsdp_size > 1
+        return True
 
     @property
     def fsdp_size(self) -> int:

@@ -22,6 +22,11 @@ import torch
 import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 from torch import nn
+from torch.distributed.checkpoint.state_dict import (
+    StateDictOptions,
+    get_model_state_dict,
+)
+from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import DTensor
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import (
@@ -691,10 +696,9 @@ class VeOMiniEngine(TrainEngine):
                 "for an example)."
             )
 
-        init_device = "meta" if self._parallel_state.fsdp_enabled else "cuda"
         self.model = build_parallelize_model(
             self.model,
-            init_device=init_device,
+            init_device="meta",
             weights_path=None if self.config.init_from_scratch else self.config.path,
             enable_full_shard=True,
             enable_reshard_after_forward=True,
