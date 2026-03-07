@@ -55,7 +55,10 @@ class MathVerifyWorker:
         )
 
     def verify(self, response: str, ground_truth: str) -> float:
-        # ground_truth_parsable = "\\boxed{" + ground_truth + "}"
+        max_char_len = 1000
+        if len(response) > max_char_len:
+            response = response[-max_char_len:]
+            
         try:
             ret_score, _ = self.verify_func([ground_truth], [response])
             return float(ret_score)

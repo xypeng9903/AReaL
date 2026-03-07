@@ -232,21 +232,46 @@ class VeOMiniEngine(TrainEngine):
         )
         self._parallel_state = get_parallel_state()
 
-        # Map VeOmni groups to AReaL interface
-        self._dp_group = self._parallel_state.dp_group
-        self._sp_group = self._parallel_state.sp_group if self._parallel_state.sp_enabled else None
-        # Context + model parallel group = sp (ulysses in veomni terms)
-        self._mp_group = self._sp_group if sp_size > 1 else self._dp_group
+        # Model parallel.
+        mesh = self._parallel_state.device_mesh
+        if sp_size > 1 and tp_size > 1:
+            assert mesh is not None
+            self._mp_group = mesh["ulysses", "tp"]._flatten(mesh_dim_name="ulysses_tp").get_group()
+        elif sp_size > 1:
+            assert mesh is not None
+            self._mp_group = mesh["ulysses"].get_group()
+        elif tp_size > 1:
+            assert mesh is not None
+            self._mp_group = mesh["tp"].get_group()
+        else:
+            self._mp_group = None
+            for r in range(self.world_size):
+                g = dist.new_group(
+                    ranks=[r],
+                    timeout=DIST_GROUP_DEFAULT_TIMEOUT,
+                    backend=get_dist_comm_backend(),
+                )
+                if r == self.rank:
+                    self._mp_group = g
+            assert self._mp_group is not None
 
-        self.dp_head = 0  # rank 0 is always dp head in single-dim DP
-        if self._dp_group is not None:
-            dp_ranks = dist.get_process_group_ranks(self._dp_group)
-            self.dp_head = dp_ranks[0]
+        # Data parallel.
+        self._dp_group = self._parallel_state.dp_group
+        self._sp_group = (
+            self._parallel_state.sp_group if self._parallel_state.sp_enabled else None
+        )
+        mp_ranks = dist.get_process_group_ranks(self._mp_group)
+        self.dp_head = mp_ranks[0]
         self.dp_rank = self._parallel_state.dp_rank
 
+        # Logging.
         self.logger.info(
             f"VeOmni parallel state initialized: "
             f"dp_size={dp_size}, sp_size={sp_size}, tp_size={tp_size}, ep_size={ep_size}"
+        )
+        self.logger.info(
+            f"Group layout: dp_ranks={dist.get_process_group_ranks(self._dp_group)}, "
+            f"mp_ranks={mp_ranks}, rank={self.rank}"
         )
         if ep_size > 1:
             self.logger.info(

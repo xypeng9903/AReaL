@@ -1,4 +1,5 @@
 import getpass
+import json
 import os
 import time
 from dataclasses import asdict
@@ -27,9 +28,9 @@ class StatsLogger:
         self.exp_config = config
         self.config = config.stats_logger
         self.ft_spec = ft_spec
+        self.jsonl_file = None
         self.init()
-
-        self._last_commit_step = -1
+        self._last_commit_step = 0
 
     def init(self):
         if dist.is_initialized() and dist.get_rank() != 0:
@@ -95,6 +96,11 @@ class StatsLogger:
         if self.config.tensorboard.path is not None:
             self.summary_writer = SummaryWriter(log_dir=self.config.tensorboard.path)
 
+        # jsonl logging
+        log_dir = self.get_log_path(self.config)
+        self.jsonl_path = os.path.join(log_dir, "metrics.jsonl")
+        self.jsonl_file = open(self.jsonl_path, "a", encoding="utf-8")
+
     def state_dict(self):
         return {
             "last_commit_step": self._last_commit_step,
@@ -113,6 +119,8 @@ class StatsLogger:
         swanlab.finish()
         if self.summary_writer is not None:
             self.summary_writer.close()
+        if self.jsonl_file is not None:
+            self.jsonl_file.close()
 
     def commit(self, epoch: int, step: int, global_step: int, data: dict | list[dict]):
         if dist.is_initialized() and dist.get_rank() != 0:
@@ -136,6 +144,17 @@ class StatsLogger:
             if self.summary_writer is not None:
                 for key, val in item.items():
                     self.summary_writer.add_scalar(f"{key}", val, log_step + i)
+
+            if self.jsonl_file is not None:
+                record = item.copy()
+                record.update({
+                    "global_step": log_step + i,
+                    "epoch": epoch,
+                    "step": step,
+                    "timestamp": time.time(),
+                })
+                self.jsonl_file.write(json.dumps(record) + "\n")
+                self.jsonl_file.flush()
         self._last_commit_step = log_step + len(data) - 1
 
     def print_stats(self, stats: dict[str, float]):
