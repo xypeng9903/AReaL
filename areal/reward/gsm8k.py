@@ -10,6 +10,6 @@ def gsm8k_reward_fn(
     try:
         worker = get_math_verify_worker()
         return worker.verify(str(completions), str(answer))
-    except Exception:
+    except BaseException:
         logger.warning("Exception in gsm8k_reward_fn", exc_info=True)
         return 0.0

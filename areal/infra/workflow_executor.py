@@ -906,7 +906,7 @@ class WorkflowExecutor:
                     "prompt": prompt_text,
                     "completion": completion_text,
                 }
-                await f.write(json.dumps(record) + "\n")
+                await f.write(json.dumps(record, ensure_ascii=False) + "\n")
         return True, ""
 
     def initialize(self, logger=None, train_data_parallel_size: int | None = None):

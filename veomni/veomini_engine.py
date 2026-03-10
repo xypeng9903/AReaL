@@ -751,6 +751,9 @@ class VeOMiniEngine(TrainEngine):
 
         lr = self.optimizer_config.lr
         weight_decay = self.optimizer_config.weight_decay
+        beta1 = self.optimizer_config.beta1
+        beta2 = self.optimizer_config.beta2
+        eps = self.optimizer_config.eps
 
         optimizer_type = "adamw"
         if self.optimizer_config.type == "adam_bf16":
@@ -761,12 +764,22 @@ class VeOMiniEngine(TrainEngine):
                 "Falling back to adamw."
             )
 
+        param_groups = [
+            {
+                "params": [p for p in self.model.parameters() if p.requires_grad],
+                "weight_decay": weight_decay,
+            }
+        ]
+
         self.optimizer = build_optimizer(
             self.model,
             lr=lr,
+            betas=(beta1, beta2),
+            eps=eps,
             weight_decay=weight_decay,
             fused=True,
             optimizer_type=optimizer_type,
+            param_groups=param_groups,
         )
 
         total_train_steps = ft_spec.total_train_steps

@@ -62,7 +62,7 @@ class MathVerifyWorker:
         try:
             ret_score, _ = self.verify_func([ground_truth], [response])
             return float(ret_score)
-        except Exception:
+        except BaseException:
             logger.warning(
                 f"Exception in MathVerifyWorker.verify for response={response} and ground_truth={ground_truth}",
                 exc_info=True,
