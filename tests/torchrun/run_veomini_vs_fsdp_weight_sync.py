@@ -38,38 +38,16 @@ import torch.distributed as dist
 from torch.distributed.tensor import DTensor
 
 from areal.api.alloc_mode import ParallelStrategy
-from areal.api.cli_args import MicroBatchSpec, OptimizerConfig, TrainEngineConfig
 from areal.api.io_struct import FinetuneSpec
 from areal.engine.fsdp_engine import FSDPEngine
 from areal.infra.platforms import current_platform
+from tests.torchrun.veomini_debug_common import make_debug_train_config
 from veomni.veomini_engine import VeOMiniEngine
-
-MODEL_PATH = (
-    "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/hadoop-aipnlp/"
-    "FMG/pengxinyu05/huggingface.co/Qwen/Qwen3-1.7B-Base"
-)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
-def _make_config(experiment_name: str) -> TrainEngineConfig:
-    return TrainEngineConfig(
-        experiment_name=experiment_name,
-        trial_name="test",
-        path=MODEL_PATH,
-        mb_spec=MicroBatchSpec(n_mbs=1),
-        optimizer=OptimizerConfig(
-            type="adam",
-            lr=1e-5,
-            weight_decay=0.01,
-            beta1=0.9,
-            beta2=0.999,
-            eps=1e-8,
-            lr_scheduler_type="constant",
-            warmup_steps_proportion=0.0,
-            gradient_clipping=1.0,
-        ),
-        disable_dropout=True,
-    )
+def _make_config(experiment_name: str):
+    return make_debug_train_config(experiment_name)
 
 
 def _mock_input(

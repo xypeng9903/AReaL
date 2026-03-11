@@ -9,17 +9,14 @@ import torch.distributed as dist
 import torch.nn.functional as F
 from torch.distributed.tensor import DTensor
 
-# from tests.utils import get_model_path
-
 from areal.api.alloc_mode import ParallelStrategy
 from areal.api.cli_args import MicroBatchSpec, OptimizerConfig, TrainEngineConfig
 from areal.api.io_struct import FinetuneSpec
 from areal.engine.core import compute_total_loss_weight
 from areal.engine.fsdp_engine import FSDPEngine, FSDPTrainContext
 from areal.infra.platforms import current_platform
+from tests.torchrun.veomini_debug_common import make_debug_train_config
 from veomni.veomini_engine import VeOMiniEngine
-
-MODEL_PATH = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/hadoop-aipnlp/FMG/pengxinyu05/huggingface.co/Qwen/Qwen3-1.7B-Base"
 
 
 def write_result(out: str, succ: bool):
@@ -60,24 +57,7 @@ def mock_loss_fn(
 
 
 def make_config(experiment_name: str) -> TrainEngineConfig:
-    return TrainEngineConfig(
-        experiment_name=experiment_name,
-        trial_name="test",
-        path=MODEL_PATH,
-        mb_spec=MicroBatchSpec(n_mbs=1),
-        optimizer=OptimizerConfig(
-            type="adam",
-            lr=1e-5,
-            weight_decay=0.01,
-            beta1=0.9,
-            beta2=0.999,
-            eps=1e-8,
-            lr_scheduler_type="constant",
-            warmup_steps_proportion=0.0,
-            gradient_clipping=1.0,
-        ),
-        disable_dropout=True,
-    )
+    return make_debug_train_config(experiment_name)
 
 
 def make_parallel_strategy() -> ParallelStrategy:

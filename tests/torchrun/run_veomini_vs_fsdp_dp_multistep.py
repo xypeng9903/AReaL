@@ -9,65 +9,114 @@ import torch.distributed as dist
 from torch.distributed.tensor import DTensor
 
 from areal.api.alloc_mode import ParallelStrategy
-from areal.api.cli_args import MicroBatchSpec, OptimizerConfig, TrainEngineConfig
 from areal.api.io_struct import FinetuneSpec
 from areal.engine.fsdp_engine import FSDPEngine
 from areal.infra.platforms import current_platform
+from tests.torchrun.veomini_debug_common import make_debug_train_config
 from veomni.veomini_engine import VeOMiniEngine
 
-MODEL_PATH = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/hadoop-aipnlp/FMG/pengxinyu05/huggingface.co/Qwen/Qwen3-1.7B-Base"
 
-
-def make_config(experiment_name: str) -> TrainEngineConfig:
-    return TrainEngineConfig(
-        experiment_name=experiment_name,
-        trial_name="test",
-        path=MODEL_PATH,
-        mb_spec=MicroBatchSpec(n_mbs=1),
-        optimizer=OptimizerConfig(
-            type="adam",
-            lr=1e-5,
-            weight_decay=0.01,
-            beta1=0.9,
-            beta2=0.999,
-            eps=1e-8,
-            lr_scheduler_type="constant",
-            warmup_steps_proportion=0.0,
-            gradient_clipping=1.0,
-        ),
-        disable_dropout=True,
-    )
+def make_config(experiment_name: str):
+    return make_debug_train_config(experiment_name)
 
 
 def mock_input(
     step: int,
     batch_size: int = 4,
-    min_seqlen: int = 8,
-    max_seqlen: int = 32,
+    min_prompt_len: int = 8,
+    max_prompt_len: int = 16,
+    min_resp_len: int = 8,
+    max_resp_len: int = 16,
     device: torch.device | str = current_platform.device_type,
 ) -> dict[str, Any]:
     pad_token_id = 0
     g = torch.Generator(device=device).manual_seed(20260310 + step)
 
-    seqlens = torch.randint(
-        min_seqlen, max_seqlen + 1, (batch_size,), dtype=torch.int, device=device, generator=g
-    )
+    prompt_lens = torch.randint(min_prompt_len, max_prompt_len + 1, (batch_size,), dtype=torch.int, device=device, generator=g)
+    resp_lens = torch.randint(min_resp_len, max_resp_len + 1, (batch_size,), dtype=torch.int, device=device, generator=g)
+    seqlens = prompt_lens + resp_lens
     max_len = int(max(seqlens))
-    input_ids = torch.randint(
-        1000, 5000, (batch_size, max_len), dtype=torch.long, device=device, generator=g
-    )
+    input_ids = torch.full((batch_size, max_len), pad_token_id, dtype=torch.long, device=device)
     attention_mask = torch.zeros((batch_size, max_len), dtype=torch.bool, device=device)
-    attention_mask[
-        torch.arange(0, max_len, device=device).unsqueeze(0) < seqlens.unsqueeze(1)
-    ] = 1
-    input_ids.masked_fill_(~attention_mask, pad_token_id)
-    return {"input_ids": input_ids, "attention_mask": attention_mask}
+    loss_mask = torch.zeros((batch_size, max_len), dtype=torch.bool, device=device)
+    
+    # Real RL inputs also often have old_logprobs and advantages
+    old_logprobs = torch.zeros((batch_size, max_len), dtype=torch.float32, device=device)
+    advantages = torch.zeros((batch_size, max_len), dtype=torch.float32, device=device)
+
+    for i in range(batch_size):
+        plen = prompt_lens[i].item()
+        rlen = resp_lens[i].item()
+        slen = plen + rlen
+        # Left-pad text (SGLang outputs often left-padded prompts and right-padded responses, but here we do left-padded to stress test)
+        # Actually standard for autoregressive is left padding for inputs. Let's do left padding where prompt starts at (max_len - slen)
+        start_idx = max_len - slen
+        input_ids[i, start_idx:] = torch.randint(1000, 5000, (slen,), dtype=torch.long, device=device, generator=g)
+        attention_mask[i, start_idx:] = True
+        loss_mask[i, start_idx + plen:] = True
+        old_logprobs[i, start_idx:] = -torch.rand((slen,), device=device, generator=g) * 2
+        advantages[i, start_idx + plen:] = torch.randn((rlen,), device=device, generator=g)
+
+    return {
+        "input_ids": input_ids, 
+        "attention_mask": attention_mask, 
+        "loss_mask": loss_mask,
+        "old_logprobs": old_logprobs,
+        "advantages": advantages
+    }
 
 
 def mock_loss_fn(
     logprobs: torch.Tensor, entropy: torch.Tensor, input_data: dict, **kwargs
 ) -> torch.Tensor:
-    return torch.mean(logprobs) + 0.01 * torch.mean(entropy)
+    # Use loss_mask to compute actual loss
+    loss_mask = input_data["loss_mask"]
+    adv = input_data.get("advantages", torch.ones_like(logprobs))
+    old_logprobs = input_data.get("old_logprobs", torch.zeros_like(logprobs))
+
+    # Real models pack the tensors, applying attention_mask, 
+    # making them 1D tensors of size num_valid_tokens
+    
+    # If loss_mask refers to the tokens, in AReaL models `logprobs` is either returned as sequence layout or packed.
+    # Note: `engine.train_batch` automatically packs the input dictionary, including loss_mask if defined.
+    # We should flat logprobs and mask.
+    if loss_mask.dim() == 2:
+        loss_mask = loss_mask.reshape(-1)
+        adv = adv.reshape(-1)
+        old_logprobs = old_logprobs.reshape(-1)
+        
+    # Some packing logics modify sizes or padding
+    if loss_mask.size(0) > logprobs.size(0):
+        loss_mask = loss_mask[:logprobs.size(0)]
+        adv = adv[:logprobs.size(0)]
+        old_logprobs = old_logprobs[:logprobs.size(0)]
+    elif loss_mask.size(0) < logprobs.size(0):
+        logprobs = logprobs[:loss_mask.size(0)]
+        entropy = entropy[:loss_mask.size(0)]
+    
+    # Compute masked sum
+    if loss_mask.shape == logprobs.shape:
+        valid_logprobs = logprobs[loss_mask]
+        valid_entropy = entropy[loss_mask]
+        valid_adv = adv[loss_mask]
+        valid_old_logprobs = old_logprobs[loss_mask]
+    else:
+        # Fallback if shape mismatch happens
+        valid_logprobs = logprobs
+        valid_entropy = entropy
+        valid_adv = adv
+        valid_old_logprobs = old_logprobs
+        
+    # Simple PPO-like loss
+    ratio = torch.exp(valid_logprobs - valid_old_logprobs)
+    surr1 = ratio * valid_adv
+    surr2 = torch.clamp(ratio, 1.0 - 0.2, 1.0 + 0.2) * valid_adv
+    loss = -torch.min(surr1, surr2).mean() - 0.01 * torch.mean(valid_entropy)
+
+    # prevent NaN if mask is empty
+    if torch.isnan(loss) or (loss_mask.shape == logprobs.shape and loss_mask.sum() == 0):
+        return (logprobs * 0).sum()
+    return loss
 
 
 def _materialize_tensor(tensor: torch.Tensor) -> torch.Tensor:

@@ -208,3 +208,4 @@ outputs/
 sympy/
 !/docs/figures/*
 /.test_artifacts
+/tmp
