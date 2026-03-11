@@ -348,6 +348,8 @@ def cmd_train(args: argparse.Namespace) -> None:
     # Create engine
     config_name = f"parity_{backend}"
     config = make_debug_train_config(config_name, lr=args.lr)
+    if args.model_path:
+        config.path = args.model_path
 
     ft_spec = FinetuneSpec(
         total_train_epochs=1,
@@ -647,6 +649,7 @@ def main() -> None:
     trn.add_argument("--steps", type=int, default=10, help="Number of training steps")
     trn.add_argument("--batch-size", type=int, default=4, help="Must match generate")
     trn.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    trn.add_argument("--model-path", type=str, default="", help="Path to the reference model")
     trn.add_argument("--output-dir", type=str, default="./parity_debug")
 
     # ---- compare ----
