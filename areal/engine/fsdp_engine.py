@@ -319,6 +319,11 @@ class FSDPEngine(TrainEngine):
             else:
                 full_state = {}
 
+        # Upcast to fp32 master weights before FSDP2 wrapping.
+        # MixedPrecisionPolicy(param_dtype=bf16) will cast to bf16 in forward,
+        # but optimizer updates happen in fp32 for numerical stability.
+        self.model.float()
+
         # NOTE: This applies FSDP2 with N-D parallelism (DP+SP+TP)
         parallelize_model(
             self.model,
@@ -607,6 +612,18 @@ class FSDPEngine(TrainEngine):
             )
 
         self.forward_backward_batch(mb_list, process_output, forward_only=False)
+
+        # --- PROBE START ---
+        import os
+        if int(os.environ.get("RANK", "0")) == 0:
+            print(f"\n[PROBE-FSDP] total_loss_weight = {float(total_loss_weight)}")
+            print(f"[PROBE-FSDP] loss_multiplier (dp_size) = {self.parallel_helper.dp_size}")
+            for n, p in self.model.named_parameters():
+                if "embed_tokens.weight" in n and p.grad is not None:
+                    g = p.grad
+                    if hasattr(g, "to_local"): g = g.to_local()
+                    print(f"[PROBE-FSDP] {n}.grad.abs().max() = {g.abs().max().item():.6e}")
+        # --- PROBE END ---
 
         # Step 4: Optimizer step
         return self.optimizer_step()

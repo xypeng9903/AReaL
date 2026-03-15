@@ -5,11 +5,9 @@ import.  Uses Qwen3-0.6B as the reference model.
 """
 
 from areal.api.cli_args import OptimizerConfig, TrainEngineConfig
-from tests.utils import get_model_path
+# from tests.utils import get_model_path
 
-MODEL_PATH = get_model_path(
-    "/storage/openpsi/models/Qwen__Qwen3-0.6B/", "Qwen/Qwen3-0.6B"
-)
+MODEL_PATH = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-hl02/hadoop-aipnlp/FMG/pengxinyu05/huggingface.co/Qwen/Qwen2.5-0.5B-Instruct"
 
 
 def make_debug_train_config(
@@ -38,6 +36,7 @@ def make_debug_train_config(
         optimizer=OptimizerConfig(
             type="adam",
             lr=lr,
+            weight_decay=0.0,
             gradient_clipping=gradient_clipping,
         ),
         init_from_scratch=init_from_scratch,

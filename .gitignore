@@ -208,4 +208,8 @@ outputs/
 sympy/
 !/docs/figures/*
 /.test_artifacts
+
+# debug
 /tmp
+/parity_debug
+*.png

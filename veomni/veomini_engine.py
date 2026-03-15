@@ -22,11 +22,6 @@ import torch
 import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 from torch import nn
-from torch.distributed.checkpoint.state_dict import (
-    StateDictOptions,
-    get_model_state_dict,
-)
-from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.tensor import DTensor
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import (
@@ -62,10 +57,8 @@ from areal.engine.fsdp_utils import (
 )
 from areal.engine.fsdp_utils.checkpoint import DCPState
 from areal.infra.dist_rollout import DistRolloutCoordinator
-from areal.infra.platforms import current_platform
 from areal.models.fsdp.ulysses import (
     set_ulysses_sequence_parallel_group,
-    ulysses_pad,
     ulysses_pad_and_slice_inputs,
     ulysses_prepare_inputs,
 )
